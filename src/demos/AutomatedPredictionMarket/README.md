@@ -7,9 +7,27 @@ My contact e-mail: ncg8j6dz@proton.me
 This proposed solution for Automated Prediction Market with Reactive Network uses EVM event as mean for Market Closure. Traditional Prediction Market usually involves direct transaction from oracle to smart contract which can be rather, especially if demanded frequency of updates is high. This problem can be addressed with Reactive Network, which allows to switch from costly L1 callbacks to relatively cheap L1 events.
 
 Another advantage of Reactive Smart Contracts lies within their versatility for both already and to-be deployed oracles. If existing oracle emits valuable data as an event, than there is no need to redeploy it for casting callback in one particular smart contract. In he same way to-be deployed oracles can be developed with tailoring to Reactive Network and be much more reusable in various cases. That allows oracle developers to offer more competitive prices to consumer and simultaneously significantly increase their user base, which would be difficult or even impossible without use of RSC.
+This proposed solution for Automated Prediction Market with Reactive Network uses EVM event as mean for Market Closure. Traditional Prediction Market usually involves direct transaction from oracle to smart contract which can be rather, especially if demanded frequency of updates is high. This problem can be addressed with Reactive Network, which allows to switch from costly L1 callbacks to relatively cheap L1 events.
+
+Another advantage of Reactive Smart Contracts lies within their versatility for both already and to-be deployed oracles. If existing oracle emits valuable data as an event, than there is no need to redeploy it for casting callback in one particular smart contract. In he same way to-be deployed oracles can be developed with tailoring to Reactive Network and be much more reusable in various cases. That allows oracle developers to offer more competitive prices to consumer and simultaneously significantly increase their user base, which would be difficult or even impossible without use of RSC.
 
 ## Use case
 
+Contract `PredictionMarket.sol` was developed by Market Creator to log predictions of unlimited number of Participants, take their deposits and make payouts to winners. Participants are expected to answer if price of some currency pair will go UP or DOWN until the end of round. Although this contract template supports any crypto and fiat currency tracked by CoinGecko, in this use case Market Creator decided to go with classic choice and implement BTC/USD pair. Round duration was set to 5 minutes to give Participants reasonable time to place prediction and to comply with limitations of CoinGecko API.
+
+This contract implements payable *depositEther()* function that collects constant deposit 0.001 SepETH and Participant's prediction 'UP' or 'DOWN' as part of call data. All predictions stored in *upDeposits* *downDeposits* structs respectively and *allDeposits* in case of price did not change. When authorized entity sends round's correct answer to *payoutPrediction()* this function calculates payout by dividing contract balance by length of corresponding struct. Finally it checks if winning struct's length is positive number. If yes, it sends each winner Participant equal payout, else each Participant gets their deposit back.
+
+To to figure out which way price dynamics went each round, Market Creator deployed `oracle.py` to fetch off-chain latest price from CoinGecko and `PriceOracle.sol` to emit event with price and timestamp of moment when backend received price from CoinGecko. For automatic execution of payouts he also deployed `ReactivePayout.sol` on Reactive Network. This contract catches events emitted by PriceOracle and checks if new timestamp is bigger than previous. If current event's indeed contains updated price, then it compares previous price with received one and decides which is correct – 'UP', 'DOWN' or 'DRAW'. Finally, it sends callback to PredictionMarket and triggers aforementioned *payoutPrediction()* function.
+
+In context of Prediction Market Model:
+* PredictionMarket.sol – Deposit Vault and Payout Agent
+* PriceOracle.sol – Data Supplier
+* ReactivePayout.sol – Decision Maker 
+
+In context of Reactive Network:
+* PredictionMarket.sol – L1 Callback Contract
+* PriceOracle.sol – L1 Source Contract
+* ReactivePayout.sol – Reactive Contract
 Contract `PredictionMarket.sol` was developed by Market Creator to log predictions of unlimited number of Participants, take their deposits and make payouts to winners. Participants are expected to answer if price of some currency pair will go UP or DOWN until the end of round. Although this contract template supports any crypto and fiat currency tracked by CoinGecko, in this use case Market Creator decided to go with classic choice and implement BTC/USD pair. Round duration was set to 5 minutes to give Participants reasonable time to place prediction and to comply with limitations of CoinGecko API.
 
 This contract implements payable *depositEther()* function that collects constant deposit 0.001 SepETH and Participant's prediction 'UP' or 'DOWN' as part of call data. All predictions stored in *upDeposits* *downDeposits* structs respectively and *allDeposits* in case of price did not change. When authorized entity sends round's correct answer to *payoutPrediction()* this function calculates payout by dividing contract balance by length of corresponding struct. Finally it checks if winning struct's length is positive number. If yes, it sends each winner Participant equal payout, else each Participant gets their deposit back.
@@ -41,6 +59,7 @@ To prepare for deployment and testing you will need:
 SEPOLIA_RPC=https://rpc2.sepolia.org
 REACTIVE_RPC=https://kopli-rpc.reactive.network/
 SYSTEM_CONTRACT_ADDR=0x0000000000000000000000000000000000FFFFFF
+PRICE_ORACLE_TOPIC_0=0x92664190cca12aca9cd5309d87194bdda75bb51362d71c06e1a6f75c7c765711
 PRICE_ORACLE_TOPIC_0=0x92664190cca12aca9cd5309d87194bdda75bb51362d71c06e1a6f75c7c765711
 
 # Oracle variables:
@@ -81,6 +100,8 @@ pip3  install  python-dotenv==1.0.1
 
 5. (Optional) You can change `API_DATA_CRYPTOCURRENCY` to any cryptocurrency id from [here](https://api.coingecko.com/api/v3/coins/list) and `API_DATA_VS_CURRENCY` ticker from [here](https://api.coingecko.com/api/v3/simple/supported_vs_currencies).
 
+5. (Optional) You can change `API_DATA_CRYPTOCURRENCY` to any cryptocurrency id from [here](https://api.coingecko.com/api/v3/coins/list) and `API_DATA_VS_CURRENCY` ticker from [here](https://api.coingecko.com/api/v3/simple/supported_vs_currencies).
+
 ### Deployment
 
 1. First of all, deploy PriceOracle.sol under Market Creator to Sepolia. This contract will be the Source Contract. Assign the deployment address to the environment variable `PRICE_ORACLE_ADDR`:
@@ -114,13 +135,16 @@ python3 oracle.py
 2. Trigger *depositEther()* function of PredictionMarket.sol under Participant One by predicting "UP" and sending 0.001 SepETH to `PREDICTION_MARKET_ADDR`:
 ```sh
 cast send $PREDICTION_MARKET_ADDR "depositEther(string)" "UP" --private-key $PARTICIPANT_ONE_PRIVATE_KEY --rpc-url $SEPOLIA_RPC --value 0.001ether
+cast send $PREDICTION_MARKET_ADDR "depositEther(string)" "UP" --private-key $PARTICIPANT_ONE_PRIVATE_KEY --rpc-url $SEPOLIA_RPC --value 0.001ether
 ```
 
 3. Trigger *depositEther()* function of PredictionMarket.sol under Participant Two by predicting "DOWN" and sending 0.001 SepETH to `PREDICTION_MARKET_ADDR`:
 ```sh
 cast send $PREDICTION_MARKET_ADDR "depositEther(string)" "DOWN" --private-key $PARTICIPANT_TWO_PRIVATE_KEY --rpc-url $SEPOLIA_RPC --value 0.001ether
+cast send $PREDICTION_MARKET_ADDR "depositEther(string)" "DOWN" --private-key $PARTICIPANT_TWO_PRIVATE_KEY --rpc-url $SEPOLIA_RPC --value 0.001ether
 ```
 
+4. Chill until countdown in oracle backend terminal window reaches zero and updated price would be emitted by `PRICE_ORACLE_ADDR`.
 4. Chill until countdown in oracle backend terminal window reaches zero and updated price would be emitted by `PRICE_ORACLE_ADDR`.
 
 This should result in a callback transaction signaling about prediction winner to `PREDICTION_MARKET_ADDR` being initiated by the Reactive Network and automated prediction market payout in form of 200% of SepETH sent to one of the Participants from second or third step (in rare case if price have not changed in 5 minutes both Participants will get 100% of their deposits back).
@@ -131,8 +155,14 @@ This should result in a callback transaction signaling about prediction winner t
 * Address Market Creator: `0x1D43182a0439723ad745A8557D2570E3F592f911`
 * Address Participant One: `0x3282b8489F16bf4556090b0778cC5785Cd7E7d0E`
 * Address Participant Two: `0x6358491dff91f92561326e3aDf9A6e86B9B00190`
+* Address Market Creator: `0x1D43182a0439723ad745A8557D2570E3F592f911`
+* Address Participant One: `0x3282b8489F16bf4556090b0778cC5785Cd7E7d0E`
+* Address Participant Two: `0x6358491dff91f92561326e3aDf9A6e86B9B00190`
 
 ### Contracts
+* Address PriceOracle.sol: `0xD09ceCB0918B76e4e8676cF77e6e8D5330F0AaC4`
+* Address PredictionMarket.sol: `0xEE25e5a73787c4926D06E10025fE814e91584875`
+* Address ReactivePayout.sol: `0xe739ebA621EBD990C3ebf7E3D03074919c081538`
 * Address PriceOracle.sol: `0xD09ceCB0918B76e4e8676cF77e6e8D5330F0AaC4`
 * Address PredictionMarket.sol: `0xEE25e5a73787c4926D06E10025fE814e91584875`
 * Address ReactivePayout.sol: `0xe739ebA621EBD990C3ebf7E3D03074919c081538`
@@ -162,6 +192,9 @@ This should result in a callback transaction signaling about prediction winner t
 
 ## Limitations and Comments
 
+* CoinGecko API documentation declares that price update supposed to happen every 2-3 minutes. In my experience occasionally it may take slightly longer for BTC and ETH, I suspect that for some less popular coins it can be much longer. To avoid situation with multiple 'DRAW' outcomes I recommend set `ROUND_DURATION` to at least 300 (5 minutes).
+* This solution on purpose implements basic minimalist variant of L1 contracts for the reason of simplification of example.
+* This solution on purpose overlooks many real-life prediction market practices (like custom bet amounts, bet resale, etc) for the reason of simplification of example.
 * CoinGecko API documentation declares that price update supposed to happen every 2-3 minutes. In my experience occasionally it may take slightly longer for BTC and ETH, I suspect that for some less popular coins it can be much longer. To avoid situation with multiple 'DRAW' outcomes I recommend set `ROUND_DURATION` to at least 300 (5 minutes).
 * This solution on purpose implements basic minimalist variant of L1 contracts for the reason of simplification of example.
 * This solution on purpose overlooks many real-life prediction market practices (like custom bet amounts, bet resale, etc) for the reason of simplification of example.
